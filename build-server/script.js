@@ -3,6 +3,13 @@ const path = require('path')
 const fs = require('fs')
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3')
 const mime = require('mime-types')
+const Redis = require('ioredis')
+
+const publisher = new Redis(process.env.REDIS_URL)
+
+function publishLog(log) {
+    publisher.publish(`logs:${PROJECT_ID}`, JSON.stringify(log))
+}
 
 const s3Client = new S3Client({
     region: 'ap-south-1',
@@ -18,6 +25,7 @@ async function uploadToS3() {
     const distFolderPath = path.join(__dirname, 'output', 'dist')
 
     if (!fs.existsSync(distFolderPath)) {
+        publishLog(`Error: Directory not found - ${distFolderPath}`)
         console.error(`Error: Directory not found - ${distFolderPath}`)
         process.exit(1)
     }
@@ -28,6 +36,7 @@ async function uploadToS3() {
         const filePath = path.join(distFolderPath, file)
         if (fs.lstatSync(filePath).isDirectory()) continue
 
+        publishLog(`Uploading: ${filePath}`)
         console.log('Uploading:', filePath)
 
         const command = new PutObjectCommand({
@@ -41,19 +50,23 @@ async function uploadToS3() {
         console.log('Uploaded:', filePath)
     }
     console.log('Upload complete...')
+    publishLog('Upload completed')
 }
 
 function init() {
     console.log('Executing script.js')
+    publishLog('Build Started...')
 
     const outDirPath = path.join(__dirname, 'output')
 
     exec(`cd ${outDirPath} && npm install && npm run build`, async (error, stdout, stderr) => {
         if (error) {
+            publishLog(`Build Error: ${error.message}`)
             console.error(`Build Error: ${error.message}`)
             return
         }
         console.log(stdout)
+        publishLog('Build Complete')
         console.log('Build Complete')
         await uploadToS3()
     })
