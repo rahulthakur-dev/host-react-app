@@ -7,6 +7,9 @@ const Redis = require('ioredis')
 
 const publisher = new Redis(process.env.REDIS_URL)
 
+
+const PROJECT_ID = process.env.PROJECT_ID
+
 function publishLog(log) {
     publisher.publish(`logs:${PROJECT_ID}`, JSON.stringify(log))
 }
@@ -19,15 +22,19 @@ const s3Client = new S3Client({
     }
 })
 
-const PROJECT_ID = process.env.PROJECT_ID
 
 async function uploadToS3() {
-    const distFolderPath = path.join(__dirname, 'output', 'dist')
+    const distFolderPaths = [
+        path.join(__dirname, 'output', 'dist'),
+        path.join(__dirname, 'output', 'build'),
+    ];
 
-    if (!fs.existsSync(distFolderPath)) {
-        publishLog(`Error: Directory not found - ${distFolderPath}`)
-        console.error(`Error: Directory not found - ${distFolderPath}`)
-        process.exit(1)
+    let distFolderPath = distFolderPaths.find(fs.existsSync);
+
+    if (!distFolderPath) {
+        publishLog(`Error: Neither 'dist' nor 'build' directory found`);
+        console.error(`Error: Neither 'dist' nor 'build' directory found`);
+        process.exit(1);
     }
 
     const distFolderContents = fs.readdirSync(distFolderPath, { recursive: true })
