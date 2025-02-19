@@ -1,12 +1,25 @@
 const express = require('express')
 const { generateSlug } = require('random-word-slugs')
 const { ECSClient, RunTaskCommand } = require('@aws-sdk/client-ecs')
-
+const Redis = require('ioredis')
+const { Server } = require('socket.io')
 
 require('dotenv').config()
 
 const app = express()
 const PORT = 9000
+
+const subscriber = new Redis(process.env.REDIS_URL)
+const io = new Server({ cors: '*' })
+
+io.on('connection', socket => {
+    socket.on('subscribe', channel => {
+        socket.join(channel)
+        socket.emit('message', `Joined ${channel}`)
+    })
+})
+
+io.listen(9002, () => console.log('Socket Server 9002'))
 
 const ecsClient = new ECSClient({
     region: 'ap-south-1',
@@ -24,8 +37,8 @@ const config = {
 app.use(express.json())
 
 app.post('/project', async (req, res) => {
-    const { gitURL, slug } = req.body
-    const projectSlug = slug ? slug : generateSlug()
+    const { gitURL, slug } = req.body;
+    const projectSlug = slug ? slug : generateSlug();
 
     // Spin the container
     const command = new RunTaskCommand({
@@ -38,7 +51,6 @@ app.post('/project', async (req, res) => {
                 assignPublicIp: 'ENABLED',
                 subnets: process.env.AWS_SUBNETS.split(','),
                 securityGroups: process.env.AWS_SECURITY_GROUPS.split(',')
-                
             }
         },
         overrides: {
@@ -52,14 +64,28 @@ app.post('/project', async (req, res) => {
                 }
             ]
         }
-    })
+    });
 
     await ecsClient.send(command);
 
-    return res.json({ status: 'queued', data: { projectSlug, url: `http://${projectSlug}.localhost:8000` } })
+    return res.json({ 
+        status: 'queued', 
+        data: { 
+            projectSlug, 
+            url: `http://${projectSlug}.rahulthakur.dev`  // 👈 Update to your domain
+        }
+    });
+});
 
-})
+async function initRedisSubscribe() {
+    console.log('Subscribed to logs....')
+    subscriber.psubscribe('logs:*')
+    subscriber.on('pmessage', (pattern, channel, message) => {
+        io.to(channel).emit('message', message)
+    })
+}
 
 
+initRedisSubscribe()
 
 app.listen(PORT, () => console.log(`API Server Running..${PORT}`))
